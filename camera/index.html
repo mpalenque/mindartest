@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>MindAR AR Camera Real</title>
+
+  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
+  <script src="/src/components/chromakey.js"></script>
+  <script src="/src/components/occlusion.js"></script>
+
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+      font-family: sans-serif;
+    }
+
+    #start-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 2000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      text-align: center;
+      padding: 20px;
+      transition: opacity 0.3s ease;
+    }
+
+    #start-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    h1 {
+      margin: 0 0 10px 0;
+      font-size: 24px;
+    }
+
+    p {
+      margin: 0 0 20px 0;
+      color: #ccc;
+      line-height: 1.4;
+      max-width: 320px;
+    }
+
+    .btn-start {
+      padding: 14px 28px;
+      font-size: 16px;
+      background: #16a34a;
+      border: none;
+      border-radius: 50px;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(22, 163, 74, 0.4);
+    }
+
+    .btn-start:hover {
+      background: #22c55e;
+    }
+
+    #info-bar {
+      position: fixed;
+      bottom: 12px;
+      left: 12px;
+      right: 12px;
+      z-index: 1000;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(8px);
+      padding: 8px 12px;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 13px;
+      text-align: center;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Overlay para iniciar (requerido en iOS/Android para reproducir video y audio) -->
+  <div id="start-overlay">
+    <h1>Cámara AR Lista</h1>
+    <p>Apuntá con tu cámara al marcador impreso para activar los videos y objetos 3D.</p>
+    <button class="btn-start" id="start-btn">Comenzar experiencia</button>
+  </div>
+
+  <div id="info-bar">Cargando experiencia...</div>
+
+  <a-scene
+    id="main-scene"
+    mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind; autoStart: false; filterMinCF: 0.001; filterBeta: 10; uiScanning: yes; uiLoading: yes; uiError: yes;"
+    color-space="sRGB"
+    renderer="colorManagement: true; physicallyCorrectLights: true; alpha: true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false">
+    
+    <a-assets id="assets" timeout="30000"></a-assets>
+    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+    <a-entity id="targets-root"></a-entity>
+  </a-scene>
+
+  <script>
+    const STORAGE_KEY = 'mindar-editor-config-v3';
+    const DEFAULT_TARGET_SRC = 'https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind';
+    const DEFAULT_VIDEO_SRC = 'https://vjs.zencdn.net/v/oceans.mp4';
+    const MAX_TARGETS = 5;
+
+    const sceneEl = document.getElementById('main-scene');
+    const assetsEl = document.getElementById('assets');
+    const targetsRoot = document.getElementById('targets-root');
+    const startOverlay = document.getElementById('start-overlay');
+    const startBtn = document.getElementById('start-btn');
+    const infoBar = document.getElementById('info-bar');
+
+    const DEFAULT_LAYOUTS = [
+      { position: '-1.35 0.55 0', rotation: '0 0 0', shape: 'box', color: '#ef4444', chroma: '#00ff00' },
+      { position: '0 0.55 0', rotation: '0 0 0', shape: 'sphere', color: '#22c55e', chroma: '#00ff00' },
+      { position: '1.35 0.55 0', rotation: '0 0 0', shape: 'cone', color: '#3b82f6', chroma: '#00ff00' },
+      { position: '-0.68 -0.55 0', rotation: '0 0 0', shape: 'cylinder', color: '#f59e0b', chroma: '#00ff00' },
+      { position: '0.68 -0.55 0', rotation: '0 0 0', shape: 'torus', color: '#a855f7', chroma: '#00ff00' }
+    ];
+
+    const defaultTarget = (index = 0) => {
+      const layout = DEFAULT_LAYOUTS[index] || DEFAULT_LAYOUTS[0];
+      return ({
+        videoSrc: DEFAULT_VIDEO_SRC,
+        content: { position: layout.position, rotation: layout.rotation, scale: '1 1 1' },
+        video: { position: '0 0.28 0.06', rotation: '0 0 0', scale: '1 1 1', width: 1, height: 0.552 },
+        occluder: { position: '0 0 -0.03', rotation: '0 0 0', scale: '1 0.7 0.02' },
+        object: { position: '0.38 0.08 0.18', rotation: '28 35 0', scale: '0.18 0.18 0.18', shape: layout.shape, color: layout.color },
+        chromakey: { color: layout.chroma, threshold: 0.1, smoothness: 0.05 }
+      });
+    };
+
+    const makeDefaultConfig = () => ({
+      targetSrc: DEFAULT_TARGET_SRC,
+      targetCount: 5,
+      targets: Array.from({ length: MAX_TARGETS }, (_, index) => defaultTarget(index))
+    });
+
+    let config = loadConfig();
+
+    function loadConfig() {
+      try {
+        const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        if (!stored) return makeDefaultConfig();
+        const next = makeDefaultConfig();
+        next.targetSrc = stored.targetSrc || next.targetSrc;
+        next.targetCount = Math.min(MAX_TARGETS, Math.max(1, Number(stored.targetCount || 1)));
+        if (Array.isArray(stored.targets)) {
+          stored.targets.slice(0, MAX_TARGETS).forEach((target, index) => {
+            next.targets[index] = deepMerge(defaultTarget(index), target);
+          });
+        }
+        return next;
+      } catch (e) {
+        console.warn('No se pudo cargar la configuración del editor.', e);
+        return makeDefaultConfig();
+      }
+    }
+
+    function deepMerge(base, patch) {
+      Object.keys(patch || {}).forEach((key) => {
+        if (patch[key] && typeof patch[key] === 'object' && !Array.isArray(patch[key])) {
+          base[key] = deepMerge(base[key] || {}, patch[key]);
+        } else if (patch[key] !== undefined) {
+          base[key] = patch[key];
+        }
+      });
+      return base;
+    }
+
+    function setTransform(el, transform) {
+      el.setAttribute('position', transform.position);
+      el.setAttribute('rotation', transform.rotation);
+      el.setAttribute('scale', transform.scale);
+    }
+
+    function setupAR() {
+      sceneEl.setAttribute('mindar-image', `imageTargetSrc: ${config.targetSrc}; autoStart: false; filterMinCF: 0.001; filterBeta: 10; uiScanning: yes; uiLoading: yes; uiError: yes;`);
+
+      targetsRoot.innerHTML = '';
+      assetsEl.innerHTML = '';
+
+      for (let index = 0; index < config.targetCount; index += 1) {
+        const targetConfig = config.targets[index];
+
+        const video = document.createElement('video');
+        video.id = `video-asset-${index}`;
+        video.src = targetConfig.videoSrc || DEFAULT_VIDEO_SRC;
+        video.loop = true;
+        video.muted = true;
+        video.playsInline = true;
+        video.setAttribute('playsinline', '');
+        video.setAttribute('webkit-playsinline', '');
+        video.crossOrigin = 'anonymous';
+        assetsEl.appendChild(video);
+
+        const target = document.createElement('a-entity');
+        target.className = 'ar-target';
+        target.dataset.targetIndex = String(index);
+        target.setAttribute('mindar-image-target', `targetIndex: ${index}`);
+
+        const content = document.createElement('a-entity');
+        content.id = `target-content-${index}`;
+        content.className = 'editable-content';
+        setTransform(content, targetConfig.content);
+
+        const plane = document.createElement('a-plane');
+        plane.id = `video-plane-${index}`;
+        plane.className = 'editable-video';
+        plane.setAttribute('width', targetConfig.video.width);
+        plane.setAttribute('height', targetConfig.video.height);
+        plane.setAttribute('material', `src: #${video.id}; shader: flat; transparent: true; side: double`);
+        plane.setAttribute('chromakey', `color: ${targetConfig.chromakey.color}; threshold: ${targetConfig.chromakey.threshold}; smoothness: ${targetConfig.chromakey.smoothness}`);
+        setTransform(plane, targetConfig.video);
+
+        const shape = targetConfig.object.shape || 'box';
+        const object = document.createElement(shape === 'sphere' ? 'a-sphere' : shape === 'cone' ? 'a-cone' : shape === 'cylinder' ? 'a-cylinder' : shape === 'torus' ? 'a-torus' : 'a-box');
+        object.id = `object-${index}`;
+        if (shape === 'sphere') object.setAttribute('radius', '0.5');
+        if (shape === 'cone') {
+          object.setAttribute('radius-bottom', '0.5');
+          object.setAttribute('radius-top', '0');
+          object.setAttribute('height', '1');
+        }
+        if (shape === 'cylinder') {
+          object.setAttribute('radius', '0.45');
+          object.setAttribute('height', '0.9');
+        }
+        if (shape === 'torus') {
+          object.setAttribute('radius', '0.42');
+          object.setAttribute('radius-tubular', '0.12');
+        }
+        object.setAttribute('material', `color: ${targetConfig.object.color || '#ffffff'}; roughness: 0.45; metalness: 0.05`);
+        setTransform(object, targetConfig.object);
+
+        const occluder = document.createElement('a-box');
+        occluder.id = `occluder-${index}`;
+        occluder.setAttribute('occlusion', '');
+        setTransform(occluder, targetConfig.occluder);
+
+        content.appendChild(plane);
+        content.appendChild(object);
+        content.appendChild(occluder);
+        target.appendChild(content);
+        targetsRoot.appendChild(target);
+
+        target.addEventListener('targetFound', () => {
+          video.play().catch(() => {});
+          infoBar.textContent = `Marcador (Target ${index}) detectado.`;
+        });
+
+        target.addEventListener('targetLost', () => {
+          video.pause();
+          infoBar.textContent = 'Buscando marcador...';
+        });
+      }
+    }
+
+    async function startExperience() {
+      startOverlay.classList.add('hidden');
+      infoBar.textContent = 'Iniciando cámara...';
+
+      try {
+        if (!window.isSecureContext) {
+          throw new Error('La cámara AR requiere HTTPS o localhost. Asegúrate de abrirla en un entorno seguro.');
+        }
+
+        if (sceneEl.hasLoaded) {
+          await startMindAR();
+        } else {
+          sceneEl.addEventListener('loaded', startMindAR, { once: true });
+        }
+      } catch (err) {
+        console.error(err);
+        startOverlay.classList.remove('hidden');
+        infoBar.textContent = err.message || 'Error al iniciar la cámara.';
+      }
+    }
+
+    async function startMindAR() {
+      const arSystem = sceneEl.systems['mindar-image-system'];
+      if (!arSystem || typeof arSystem.start !== 'function') {
+        throw new Error('El sistema MindAR no pudo inicializar.');
+      }
+
+      document.querySelectorAll('video').forEach((video) => {
+        video.muted = true;
+        const p = video.play();
+        if (p && typeof p.then === 'function') {
+          p.then(() => video.pause()).catch(() => {});
+        }
+      });
+
+      await arSystem.start();
+      infoBar.textContent = 'Cámara activa. Apuntá al marcador.';
+    }
+
+    setupAR();
+    startBtn.addEventListener('click', startExperience);
+    infoBar.textContent = 'Lista para iniciar. Toca el botón.';
+  </script>
+</body>
+</html>

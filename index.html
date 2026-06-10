@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>MindAR Image Target Editor</title>
+
+  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
+  <script src="./src/components/chromakey.js"></script>
+  <script src="./src/components/occlusion.js"></script>
+
+  <style>
+    :root {
+      color-scheme: dark;
+      --panel: rgba(16, 18, 24, 0.92);
+      --panel-strong: rgba(9, 11, 15, 0.96);
+      --line: rgba(255, 255, 255, 0.14);
+      --text: #f7f7f8;
+      --muted: #b7bdc7;
+      --accent: #16a34a;
+      --danger: #dc2626;
+      --control: rgba(255, 255, 255, 0.1);
+    }
+
+    * { box-sizing: border-box; }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #05070a;
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    a-scene {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    button {
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--control);
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    button:hover { background: rgba(255, 255, 255, 0.16); }
+    button:disabled { cursor: not-allowed; opacity: 0.45; }
+
+    input,
+    select {
+      width: 100%;
+      min-height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text);
+      padding: 6px 8px;
+      outline: none;
+    }
+
+    input[type="range"] {
+      min-height: 24px;
+      padding: 0;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.2;
+    }
+
+    #start-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: grid;
+      place-items: center;
+      padding: 22px;
+      background: rgba(0, 0, 0, 0.86);
+      transition: opacity 180ms ease;
+    }
+
+    #start-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    #start-overlay.editor-hidden {
+      display: none;
+    }
+
+    .start-box {
+      width: min(460px, 100%);
+      display: grid;
+      gap: 16px;
+      text-align: center;
+    }
+
+    .start-box h1 {
+      margin: 0;
+      font-size: clamp(26px, 8vw, 46px);
+      line-height: 0.95;
+      letter-spacing: 0;
+    }
+
+    .start-box p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .primary {
+      min-height: 48px;
+      background: var(--accent);
+      border-color: transparent;
+      color: #041108;
+      font-weight: 800;
+    }
+
+    .primary:hover { background: #22c55e; }
+    .danger { background: rgba(220, 38, 38, 0.18); border-color: rgba(220, 38, 38, 0.5); }
+
+    #status-bar {
+      position: fixed;
+      left: 12px;
+      right: 12px;
+      bottom: 12px;
+      z-index: 12;
+      min-height: 40px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 13px;
+      pointer-events: none;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: #f59e0b;
+      flex: 0 0 auto;
+    }
+
+    .dot.ready { background: var(--accent); }
+    .dot.error { background: var(--danger); }
+
+    #editor-panel {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      z-index: 14;
+      width: min(360px, calc(100vw - 24px));
+      max-height: calc(100vh - 74px);
+      display: grid;
+      grid-template-rows: auto 1fr;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 18px 60px rgba(0, 0, 0, 0.38);
+      overflow: hidden;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-strong);
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    #toggle-editor {
+      width: 38px;
+      min-height: 32px;
+      padding: 0;
+    }
+
+    .panel-body {
+      display: grid;
+      gap: 14px;
+      padding: 12px;
+      overflow: auto;
+    }
+
+    #editor-panel.collapsed {
+      width: auto;
+    }
+
+    #editor-panel.collapsed .panel-body,
+    #editor-panel.collapsed .panel-title {
+      display: none;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .triple {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .section {
+      display: grid;
+      gap: 10px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+    }
+
+    .section:first-child {
+      padding-top: 0;
+      border-top: 0;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .compact-btn {
+      min-height: 34px;
+      padding: 0 8px;
+      font-size: 12px;
+    }
+
+    .wide-btn {
+      grid-column: 1 / -1;
+    }
+
+    @media (max-width: 720px) {
+      #editor-panel {
+        top: auto;
+        bottom: 62px;
+        left: 12px;
+        right: 12px;
+        width: auto;
+        max-height: 50vh;
+      }
+
+      .actions { grid-template-columns: 1fr 1fr; }
+      #status-bar { font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="start-overlay" class="editor-hidden">
+    <div class="start-box">
+      <h1>MindAR Editor</h1>
+      <p id="start-copy">Inicia la cámara, apunta al image target y ajusta la posición de cada video en 3D.</p>
+      <button class="primary" id="start-btn" type="button">Iniciar cámara</button>
+      <button id="preview-btn" type="button">Preview sin cámara</button>
+    </div>
+  </div>
+
+  <section id="editor-panel" aria-label="Editor 3D">
+    <div class="panel-header">
+      <h2 class="panel-title">Editor 3D</h2>
+      <button id="toggle-editor" title="Mostrar u ocultar editor" type="button">☰</button>
+    </div>
+    <div class="panel-body">
+      <div class="section">
+        <div class="row">
+          <label>Target
+            <select id="target-select"></select>
+          </label>
+          <label>Objeto
+            <select id="object-select">
+              <option value="content">Image target</option>
+              <option value="video">Video</option>
+              <option value="object">Objeto 3D</option>
+              <option value="occluder">Occlusor</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <label>Cantidad targets
+            <input id="target-count" type="number" min="1" max="5" step="1">
+          </label>
+          <label>URL .mind
+            <input id="target-src" type="text" autocomplete="off" spellcheck="false">
+          </label>
+        </div>
+        <div class="actions">
+          <button class="compact-btn wide-btn primary" id="open-inspector" type="button">Abrir inspector A-Frame</button>
+          <button class="compact-btn" id="apply-target-config" type="button">Aplicar</button>
+          <button class="compact-btn" id="start-ar" type="button">AR</button>
+          <button class="compact-btn" id="preview-mode" type="button">Preview</button>
+        </div>
+        <div class="hint">Para usar tu marker: pon el `.mind` en <strong>public/assets/targets</strong> y usa <strong>/assets/targets/archivo.mind</strong>.</div>
+        <div class="hint" style="margin-top: 4px; border-top: 1px dashed var(--line); padding-top: 8px;">
+          <a id="card-print-link" href="https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.png" target="_blank" style="color: #22c55e; font-weight: bold; text-decoration: underline;">Imprimir marcador de prueba (card.png)</a>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="triple">
+          <label>X<input data-axis="x" data-prop="position" type="number" step="0.01"></label>
+          <label>Y<input data-axis="y" data-prop="position" type="number" step="0.01"></label>
+          <label>Z<input data-axis="z" data-prop="position" type="number" step="0.01"></label>
+        </div>
+        <div class="triple">
+          <label>Rot X<input data-axis="x" data-prop="rotation" type="number" step="1"></label>
+          <label>Rot Y<input data-axis="y" data-prop="rotation" type="number" step="1"></label>
+          <label>Rot Z<input data-axis="z" data-prop="rotation" type="number" step="1"></label>
+        </div>
+        <div class="triple">
+          <label>Esc X<input data-axis="x" data-prop="scale" type="number" step="0.01" min="0.01"></label>
+          <label>Esc Y<input data-axis="y" data-prop="scale" type="number" step="0.01" min="0.01"></label>
+          <label>Esc Z<input data-axis="z" data-prop="scale" type="number" step="0.01" min="0.01"></label>
+        </div>
+        <div class="row">
+          <label>Ancho video<input id="video-width" type="number" step="0.01" min="0.01"></label>
+          <label>Alto video<input id="video-height" type="number" step="0.01" min="0.01"></label>
+        </div>
+      </div>
+
+      <div class="section">
+        <label>Video URL
+          <input id="video-src" type="text" autocomplete="off" spellcheck="false">
+        </label>
+        <div class="row">
+          <label>Chroma color<input id="chroma-color" type="color"></label>
+          <label>Threshold<input id="chroma-threshold" type="number" min="0" max="1" step="0.01"></label>
+        </div>
+        <div class="actions">
+          <button class="compact-btn" id="save-config" type="button">Guardar</button>
+          <button class="compact-btn" id="export-config" type="button">Exportar</button>
+          <button class="compact-btn danger" id="reset-config" type="button">Reset</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div id="status-bar" role="status" aria-live="polite">
+    <span class="dot" id="status-dot"></span>
+    <span id="status-text">Listo para iniciar.</span>
+  </div>
+
+  <a-scene
+    id="main-scene"
+    mindar-image="imageTargetSrc: https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind; autoStart: false; filterMinCF: 0.001; filterBeta: 10; uiScanning: no; uiLoading: no; uiError: no;"
+    color-space="sRGB"
+    renderer="colorManagement: true; physicallyCorrectLights: true; alpha: true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false"
+    inspector="url: https://cdn.jsdelivr.net/npm/aframe-inspector@1.5.x/dist/aframe-inspector.min.js">
+    <a-assets id="assets" timeout="30000"></a-assets>
+    <a-camera position="0 0 1.8" look-controls="enabled: false"></a-camera>
+    <a-entity id="image-targets-editor" position="0 0 0"></a-entity>
+    <a-entity id="targets-root"></a-entity>
+  </a-scene>
+
+  <script>
+    const DEFAULT_TARGET_SRC = 'https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind';
+    const DEFAULT_VIDEO_SRC = 'https://vjs.zencdn.net/v/oceans.mp4';
+    const MAX_TARGETS = 5;
+    const STORAGE_KEY = 'mindar-editor-config-v3';
+
+    const DEFAULT_LAYOUTS = [
+      { position: '-1.35 0.55 0', rotation: '0 0 0', shape: 'box', color: '#ef4444', chroma: '#00ff00' },
+      { position: '0 0.55 0', rotation: '0 0 0', shape: 'sphere', color: '#22c55e', chroma: '#00ff00' },
+      { position: '1.35 0.55 0', rotation: '0 0 0', shape: 'cone', color: '#3b82f6', chroma: '#00ff00' },
+      { position: '-0.68 -0.55 0', rotation: '0 0 0', shape: 'cylinder', color: '#f59e0b', chroma: '#00ff00' },
+      { position: '0.68 -0.55 0', rotation: '0 0 0', shape: 'torus', color: '#a855f7', chroma: '#00ff00' }
+    ];
+
+    const sceneEl = document.getElementById('main-scene');
+    const assetsEl = document.getElementById('assets');
+    const editorRoot = document.getElementById('image-targets-editor');
+    const targetsRoot = document.getElementById('targets-root');
+    const startOverlay = document.getElementById('start-overlay');
+    const startBtn = document.getElementById('start-btn');
+    const previewBtn = document.getElementById('preview-btn');
+    const statusDot = document.getElementById('status-dot');
+    const statusText = document.getElementById('status-text');
+    const editorPanel = document.getElementById('editor-panel');
+    const toggleEditor = document.getElementById('toggle-editor');
+    const targetSelect = document.getElementById('target-select');
+    const objectSelect = document.getElementById('object-select');
+    const targetCountInput = document.getElementById('target-count');
+    const targetSrcInput = document.getElementById('target-src');
+    const videoSrcInput = document.getElementById('video-src');
+    const videoWidthInput = document.getElementById('video-width');
+    const videoHeightInput = document.getElementById('video-height');
+    const chromaColorInput = document.getElementById('chroma-color');
+    const chromaThresholdInput = document.getElementById('chroma-threshold');
+
+    const editorInputs = Array.from(document.querySelectorAll('[data-prop]'));
+    let isStarted = false;
+    let previewActive = false;
+
+    const defaultTarget = (index = 0) => {
+      const layout = DEFAULT_LAYOUTS[index] || DEFAULT_LAYOUTS[0];
+      return ({
+      videoSrc: DEFAULT_VIDEO_SRC,
+      content: { position: layout.position, rotation: layout.rotation, scale: '1 1 1' },
+      video: { position: '0 0.28 0.06', rotation: '0 0 0', scale: '1 1 1', width: 1, height: 0.552 },
+      occluder: { position: '0 0 -0.03', rotation: '0 0 0', scale: '1 0.7 0.02' },
+      object: { position: '0.38 0.08 0.18', rotation: '28 35 0', scale: '0.18 0.18 0.18', shape: layout.shape, color: layout.color },
+      chromakey: { color: layout.chroma, threshold: 0.1, smoothness: 0.05 }
+      });
+    };
+
+    const makeDefaultConfig = () => ({
+      targetSrc: DEFAULT_TARGET_SRC,
+      targetCount: 5,
+      targets: Array.from({ length: MAX_TARGETS }, (_, index) => defaultTarget(index))
+    });
+
+    let config = loadConfig();
+
+    function loadConfig() {
+      try {
+        const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        if (!stored) return makeDefaultConfig();
+        const next = makeDefaultConfig();
+        next.targetSrc = stored.targetSrc || next.targetSrc;
+        next.targetCount = clampNumber(stored.targetCount || 1, 1, MAX_TARGETS);
+        if (Array.isArray(stored.targets)) {
+          stored.targets.slice(0, MAX_TARGETS).forEach((target, index) => {
+            next.targets[index] = deepMerge(defaultTarget(index), target);
+          });
+        }
+        return next;
+      } catch (error) {
+        console.warn('No se pudo cargar la configuración guardada.', error);
+        return makeDefaultConfig();
+      }
+    }
+
+    function deepMerge(base, patch) {
+      Object.keys(patch || {}).forEach((key) => {
+        if (patch[key] && typeof patch[key] === 'object' && !Array.isArray(patch[key])) {
+          base[key] = deepMerge(base[key] || {}, patch[key]);
+        } else if (patch[key] !== undefined) {
+          base[key] = patch[key];
+        }
+      });
+      return base;
+    }
+
+    function clampNumber(value, min, max) {
+      const number = Number(value);
+      if (Number.isNaN(number)) return min;
+      return Math.min(max, Math.max(min, number));
+    }
+
+    function setStatus(message, type = 'pending') {
+      statusText.textContent = message;
+      statusDot.className = `dot ${type === 'ready' ? 'ready' : type === 'error' ? 'error' : ''}`;
+    }
+
+    function saveConfig() {
+      captureCurrentSceneToConfig();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(config, null, 2));
+      setStatus('Configuración guardada en este navegador.', 'ready');
+    }
+
+    function captureCurrentSceneToConfig() {
+      for (let index = 0; index < config.targetCount; index += 1) {
+        const targetConfig = config.targets[index];
+        const contentEl = document.getElementById(`image-target-${index}-editor`);
+        const videoEl = document.getElementById(`video-plane-${index}-editor`);
+        const objectEl = document.getElementById(`object-${index}-editor`);
+        const occluderEl = document.getElementById(`occluder-${index}-editor`);
+
+        if (contentEl) {
+          const t = getDOMTransform(contentEl);
+          targetConfig.content.position = t.position;
+          targetConfig.content.rotation = t.rotation;
+          targetConfig.content.scale = t.scale;
+        }
+        if (videoEl) {
+          const t = getDOMTransform(videoEl);
+          targetConfig.video.position = t.position;
+          targetConfig.video.rotation = t.rotation;
+          targetConfig.video.scale = t.scale;
+        }
+        if (objectEl) {
+          const t = getDOMTransform(objectEl);
+          targetConfig.object.position = t.position;
+          targetConfig.object.rotation = t.rotation;
+          targetConfig.object.scale = t.scale;
+        }
+        if (occluderEl) {
+          const t = getDOMTransform(occluderEl);
+          targetConfig.occluder.position = t.position;
+          targetConfig.occluder.rotation = t.rotation;
+          targetConfig.occluder.scale = t.scale;
+        }
+      }
+    }
+
+    function getDOMTransform(el) {
+      if (!el) return null;
+      if (el.object3D) {
+        const p = el.object3D.position;
+        const r = el.object3D.rotation;
+        const s = el.object3D.scale;
+        const posStr = `${round(p.x)} ${round(p.y)} ${round(p.z)}`;
+        const rotStr = `${round(THREE.MathUtils.radToDeg(r.x))} ${round(THREE.MathUtils.radToDeg(r.y))} ${round(THREE.MathUtils.radToDeg(r.z))}`;
+        const scaleStr = `${round(s.x)} ${round(s.y)} ${round(s.z)}`;
+        return { position: posStr, rotation: rotStr, scale: scaleStr };
+      }
+      return {
+        position: el.getAttribute('position') || '0 0 0',
+        rotation: el.getAttribute('rotation') || '0 0 0',
+        scale: el.getAttribute('scale') || '1 1 1'
+      };
+    }
+
+    function applySceneConfig() {
+      config.targetCount = clampNumber(config.targetCount, 1, MAX_TARGETS);
+      sceneEl.setAttribute('mindar-image', `imageTargetSrc: ${config.targetSrc}; autoStart: false; filterMinCF: 0.001; filterBeta: 10; uiScanning: no; uiLoading: no; uiError: no;`);
+      targetCountInput.value = config.targetCount;
+      targetSrcInput.value = config.targetSrc;
+      buildTargets();
+      fillTargetSelect();
+      syncEditorFromSelection();
+    }
+
+    function buildTargets() {
+      targetsRoot.innerHTML = '';
+      editorRoot.innerHTML = '';
+      assetsEl.innerHTML = '';
+
+      for (let index = 0; index < config.targetCount; index += 1) {
+        const targetConfig = config.targets[index];
+        const video = document.createElement('video');
+        video.id = `video-asset-${index}`;
+        video.src = targetConfig.videoSrc || DEFAULT_VIDEO_SRC;
+        video.loop = true;
+        video.muted = true;
+        video.playsInline = true;
+        video.setAttribute('playsinline', '');
+        video.setAttribute('webkit-playsinline', '');
+        video.crossOrigin = 'anonymous';
+        assetsEl.appendChild(video);
+
+        const editorTarget = buildVisibleTarget(index, targetConfig, video.id, 'editor');
+        editorTarget.id = `image-target-${index}-editor`;
+        editorRoot.appendChild(editorTarget);
+
+        const target = document.createElement('a-entity');
+        target.className = 'ar-target';
+        target.dataset.targetIndex = String(index);
+        target.setAttribute('mindar-image-target', `targetIndex: ${index}`);
+
+        const content = buildVisibleTarget(index, targetConfig, video.id, 'ar');
+        target.appendChild(content);
+        targetsRoot.appendChild(target);
+
+        attachTargetEvents(target, index);
+      }
+
+      if (previewActive) forcePreview(true);
+    }
+
+    function buildVisibleTarget(index, targetConfig, videoId, mode) {
+      const content = document.createElement('a-entity');
+      content.id = mode === 'editor' ? `image-target-content-${index}-editor` : `target-content-${index}`;
+      content.className = 'editable-content';
+      setTransform(content, targetConfig.content);
+
+      const targetSurface = document.createElement('a-plane');
+      targetSurface.id = mode === 'editor' ? `image-target-surface-${index}-editor` : `image-target-surface-${index}`;
+      targetSurface.className = 'editable-target-surface';
+      targetSurface.setAttribute('width', 1);
+      targetSurface.setAttribute('height', 0.7);
+      targetSurface.setAttribute('position', '0 0 -0.02');
+      targetSurface.setAttribute('material', 'shader: flat; color: #ffffff; opacity: 0.26; transparent: true; side: double');
+
+      const border = document.createElement('a-ring');
+      border.id = mode === 'editor' ? `image-target-center-${index}-editor` : `image-target-center-${index}`;
+      border.setAttribute('radius-inner', '0.045');
+      border.setAttribute('radius-outer', '0.055');
+      border.setAttribute('color', '#ff3b30');
+      border.setAttribute('position', '0 0 0.04');
+
+      const targetLabel = document.createElement('a-text');
+      targetLabel.id = mode === 'editor' ? `image-target-label-${index}-editor` : `image-target-label-${index}`;
+      targetLabel.setAttribute('value', `IMAGE TARGET ${index}`);
+      targetLabel.setAttribute('align', 'center');
+      targetLabel.setAttribute('color', '#ffffff');
+      targetLabel.setAttribute('width', '1.2');
+      targetLabel.setAttribute('position', '0 -0.43 0.04');
+
+      const plane = document.createElement('a-plane');
+      plane.id = mode === 'editor' ? `video-plane-${index}-editor` : `video-plane-${index}`;
+      plane.className = 'editable-video';
+      plane.setAttribute('width', targetConfig.video.width);
+      plane.setAttribute('height', targetConfig.video.height);
+      plane.setAttribute('material', `src: #${videoId}; shader: flat; transparent: true; side: double`);
+      plane.setAttribute('chromakey', `color: ${targetConfig.chromakey.color}; threshold: ${targetConfig.chromakey.threshold}; smoothness: ${targetConfig.chromakey.smoothness}`);
+      setTransform(plane, targetConfig.video);
+
+      const object = buildDistinctObject(index, targetConfig.object, mode);
+
+      const occluder = document.createElement('a-box');
+      occluder.id = mode === 'editor' ? `occluder-${index}-editor` : `occluder-${index}`;
+      occluder.className = 'editable-occluder';
+      if (mode === 'ar') occluder.setAttribute('occlusion', '');
+      if (mode === 'editor') occluder.setAttribute('material', 'color: #2dd4bf; opacity: 0.22; transparent: true');
+      setTransform(occluder, targetConfig.occluder);
+
+      content.appendChild(targetSurface);
+      content.appendChild(targetLabel);
+      content.appendChild(plane);
+      content.appendChild(object);
+      content.appendChild(occluder);
+      content.appendChild(border);
+      return content;
+    }
+
+    function buildDistinctObject(index, objectConfig, mode) {
+      const shape = objectConfig.shape || 'box';
+      const object = document.createElement(shape === 'sphere' ? 'a-sphere' : shape === 'cone' ? 'a-cone' : shape === 'cylinder' ? 'a-cylinder' : shape === 'torus' ? 'a-torus' : 'a-box');
+      object.id = mode === 'editor' ? `object-${index}-editor` : `object-${index}`;
+      object.className = 'editable-object';
+
+      if (shape === 'sphere') object.setAttribute('radius', '0.5');
+      if (shape === 'cone') {
+        object.setAttribute('radius-bottom', '0.5');
+        object.setAttribute('radius-top', '0');
+        object.setAttribute('height', '1');
+      }
+      if (shape === 'cylinder') {
+        object.setAttribute('radius', '0.45');
+        object.setAttribute('height', '0.9');
+      }
+      if (shape === 'torus') {
+        object.setAttribute('radius', '0.42');
+        object.setAttribute('radius-tubular', '0.12');
+      }
+
+      object.setAttribute('material', `color: ${objectConfig.color || '#ffffff'}; roughness: 0.45; metalness: 0.05`);
+      setTransform(object, objectConfig);
+      return object;
+    }
+
+    function attachTargetEvents(target, index) {
+      target.addEventListener('targetFound', () => {
+        playTargetVideo(index);
+        setStatus(`Target ${index} detectado.`, 'ready');
+      });
+
+      target.addEventListener('targetLost', () => {
+        pauseTargetVideo(index);
+        setStatus(`Target ${index} perdido.`, 'pending');
+      });
+    }
+
+    function fillTargetSelect() {
+      const selected = targetSelect.value || '0';
+      targetSelect.innerHTML = '';
+      for (let index = 0; index < config.targetCount; index += 1) {
+        const option = document.createElement('option');
+        option.value = String(index);
+        option.textContent = `Target ${index}`;
+        targetSelect.appendChild(option);
+      }
+      targetSelect.value = Number(selected) < config.targetCount ? selected : '0';
+    }
+
+    function setTransform(el, transform) {
+      el.setAttribute('position', transform.position);
+      el.setAttribute('rotation', transform.rotation);
+      el.setAttribute('scale', transform.scale);
+    }
+
+    function getSelectedIndex() {
+      return Number(targetSelect.value || 0);
+    }
+
+    function getSelectedKind() {
+      return objectSelect.value;
+    }
+
+    function getSelectedElement() {
+      const index = getSelectedIndex();
+      const kind = getSelectedKind();
+      return getSelectedElements()[0] || null;
+    }
+
+    function getSelectedElements() {
+      const index = getSelectedIndex();
+      const kind = getSelectedKind();
+      if (kind === 'content') return [
+        document.getElementById(`image-target-${index}-editor`),
+        document.getElementById(`target-content-${index}`)
+      ].filter(Boolean);
+      if (kind === 'occluder') return [
+        document.getElementById(`occluder-${index}-editor`),
+        document.getElementById(`occluder-${index}`)
+      ].filter(Boolean);
+      if (kind === 'object') return [
+        document.getElementById(`object-${index}-editor`),
+        document.getElementById(`object-${index}`)
+      ].filter(Boolean);
+      return [
+        document.getElementById(`video-plane-${index}-editor`),
+        document.getElementById(`video-plane-${index}`)
+      ].filter(Boolean);
+    }
+
+    function getSelectedConfig() {
+      const targetConfig = config.targets[getSelectedIndex()];
+      return targetConfig[getSelectedKind()];
+    }
+
+    function vectorToObject(value, fallback = '0 0 0') {
+      const parts = String(value || fallback).trim().split(/\s+/).map(Number);
+      return { x: parts[0] || 0, y: parts[1] || 0, z: parts[2] || 0 };
+    }
+
+    function objectToVector(value) {
+      return `${round(value.x)} ${round(value.y)} ${round(value.z)}`;
+    }
+
+    function round(value) {
+      return Math.round(Number(value) * 10000) / 10000;
+    }
+
+    function syncEditorFromSelection() {
+      const selectedConfig = getSelectedConfig();
+      const targetConfig = config.targets[getSelectedIndex()];
+      const vectors = {
+        position: vectorToObject(selectedConfig.position),
+        rotation: vectorToObject(selectedConfig.rotation),
+        scale: vectorToObject(selectedConfig.scale, '1 1 1')
+      };
+
+      editorInputs.forEach((input) => {
+        input.value = vectors[input.dataset.prop][input.dataset.axis];
+      });
+
+      videoSrcInput.value = targetConfig.videoSrc || DEFAULT_VIDEO_SRC;
+      videoWidthInput.value = targetConfig.video.width;
+      videoHeightInput.value = targetConfig.video.height;
+      chromaColorInput.value = targetConfig.chromakey.color;
+      chromaThresholdInput.value = targetConfig.chromakey.threshold;
+    }
+
+    async function openAFrameInspector() {
+      await sceneReady();
+      setStatus('Abriendo inspector de A-Frame...', 'pending');
+
+      try {
+        if (sceneEl.components.inspector && typeof sceneEl.components.inspector.openInspector === 'function') {
+          sceneEl.components.inspector.openInspector();
+          setStatus('Inspector de A-Frame abierto.', 'ready');
+          return;
+        }
+
+        const event = new KeyboardEvent('keydown', {
+          key: 'i',
+          code: 'KeyI',
+          keyCode: 73,
+          which: 73,
+          ctrlKey: true,
+          altKey: true,
+          bubbles: true
+        });
+        window.dispatchEvent(event);
+        setStatus('Si no abrió, usa Ctrl + Alt + I.', 'ready');
+      } catch (error) {
+        console.error(error);
+        setStatus('No pude abrir el inspector. Usa Ctrl + Alt + I.', 'error');
+      }
+    }
+
+    function updateTransformFromInput(input) {
+      const selectedConfig = getSelectedConfig();
+      const vector = vectorToObject(selectedConfig[input.dataset.prop], input.dataset.prop === 'scale' ? '1 1 1' : '0 0 0');
+      vector[input.dataset.axis] = Number(input.value);
+      selectedConfig[input.dataset.prop] = objectToVector(vector);
+      getSelectedElements().forEach((element) => {
+        element.setAttribute(input.dataset.prop, selectedConfig[input.dataset.prop]);
+      });
+    }
+
+    function updateVideoSettings() {
+      const index = getSelectedIndex();
+      const targetConfig = config.targets[index];
+      const planes = [document.getElementById(`video-plane-${index}-editor`), document.getElementById(`video-plane-${index}`)].filter(Boolean);
+      const video = document.getElementById(`video-asset-${index}`);
+
+      targetConfig.videoSrc = videoSrcInput.value.trim() || DEFAULT_VIDEO_SRC;
+      targetConfig.video.width = Number(videoWidthInput.value) || 1;
+      targetConfig.video.height = Number(videoHeightInput.value) || 0.552;
+      targetConfig.chromakey.color = chromaColorInput.value;
+      targetConfig.chromakey.threshold = Number(chromaThresholdInput.value) || 0;
+
+      if (video && video.src !== targetConfig.videoSrc) video.src = targetConfig.videoSrc;
+      planes.forEach((plane) => {
+        plane.setAttribute('width', targetConfig.video.width);
+        plane.setAttribute('height', targetConfig.video.height);
+        plane.setAttribute('chromakey', `color: ${targetConfig.chromakey.color}; threshold: ${targetConfig.chromakey.threshold}; smoothness: ${targetConfig.chromakey.smoothness}`);
+      });
+    }
+
+    async function startAR() {
+      startOverlay.classList.add('hidden');
+      previewActive = false;
+      editorRoot.object3D.visible = false;
+      targetsRoot.object3D.visible = true;
+      setStatus('Pidiendo cámara e iniciando MindAR...', 'pending');
+
+      try {
+        if (!window.isSecureContext) {
+          throw new Error('La cámara requiere HTTPS o localhost. Abre el proyecto con npm run dev, no como archivo suelto.');
+        }
+
+        if (config.targetSrc === DEFAULT_TARGET_SRC && config.targetCount > 1) {
+          throw new Error('El .mind demo tiene 1 target. Para AR real con 5, carga un .mind multitarget en /assets/targets/ y pon esa URL en el panel.');
+        }
+
+        await sceneReady();
+        const arSystem = sceneEl.systems['mindar-image-system'];
+        if (!arSystem || typeof arSystem.start !== 'function') {
+          throw new Error('MindAR no terminó de inicializar. Revisa que el script de MindAR haya cargado.');
+        }
+
+        primeVideos();
+        await arSystem.start();
+        isStarted = true;
+        setStatus('Cámara activa. Apunta al image target.', 'ready');
+      } catch (error) {
+        console.error(error);
+        startOverlay.classList.remove('hidden');
+        setStatus(error.message || 'No se pudo iniciar la cámara.', 'error');
+      }
+    }
+
+    async function stopAR() {
+      const arSystem = sceneEl.systems['mindar-image-system'];
+      if (arSystem && typeof arSystem.stop === 'function' && isStarted) {
+        await arSystem.stop();
+      }
+      isStarted = false;
+      pauseAllVideos();
+    }
+
+    function sceneReady() {
+      if (sceneEl.hasLoaded) return Promise.resolve();
+      return new Promise((resolve) => sceneEl.addEventListener('loaded', resolve, { once: true }));
+    }
+
+    function primeVideos() {
+      document.querySelectorAll('video').forEach((video) => {
+        video.muted = true;
+        const playPromise = video.play();
+        if (playPromise && typeof playPromise.then === 'function') {
+          playPromise.then(() => video.pause()).catch(() => {});
+        }
+      });
+    }
+
+    function playTargetVideo(index) {
+      const video = document.getElementById(`video-asset-${index}`);
+      if (!video) return;
+      video.play().catch(() => setStatus('El navegador bloqueó el video. Tocá Iniciar de nuevo.', 'error'));
+    }
+
+    function pauseTargetVideo(index) {
+      const video = document.getElementById(`video-asset-${index}`);
+      if (video) video.pause();
+    }
+
+    function pauseAllVideos() {
+      document.querySelectorAll('video').forEach((video) => video.pause());
+    }
+
+    async function forcePreview(keepOverlayHidden = false) {
+      await stopAR();
+      previewActive = true;
+      startOverlay.classList.add('editor-hidden');
+      if (!keepOverlayHidden) startOverlay.classList.add('hidden');
+
+      document.querySelectorAll('.ar-target').forEach((target, index) => {
+        target.object3D.visible = true;
+        target.setAttribute('visible', true);
+        playTargetVideo(index);
+      });
+
+      editorRoot.object3D.visible = true;
+      targetsRoot.object3D.visible = false;
+
+      const camera = sceneEl.camera;
+      if (camera) {
+        camera.position.set(0, 0, 1.8);
+        camera.lookAt(0, 0, 0);
+      }
+      setStatus('Preview activo sin cámara. Ajusta posiciones y guarda.', 'ready');
+    }
+
+    function applyTargetSettings() {
+      config.targetCount = clampNumber(targetCountInput.value, 1, MAX_TARGETS);
+      config.targetSrc = targetSrcInput.value.trim() || DEFAULT_TARGET_SRC;
+      saveConfig();
+      window.location.reload();
+    }
+
+    function exportConfig() {
+      const payload = JSON.stringify(config, null, 2);
+      navigator.clipboard.writeText(payload).then(
+        () => setStatus('Configuración copiada al portapapeles.', 'ready'),
+        () => {
+          console.log(payload);
+          setStatus('No pude copiar. Dejé la configuración en la consola.', 'error');
+        }
+      );
+    }
+
+    function resetConfig() {
+      localStorage.removeItem(STORAGE_KEY);
+      window.location.reload();
+    }
+
+    toggleEditor.addEventListener('click', () => editorPanel.classList.toggle('collapsed'));
+    startBtn.addEventListener('click', startAR);
+    previewBtn.addEventListener('click', () => forcePreview());
+    document.getElementById('open-inspector').addEventListener('click', openAFrameInspector);
+    document.getElementById('start-ar').addEventListener('click', startAR);
+    document.getElementById('preview-mode').addEventListener('click', () => forcePreview());
+    document.getElementById('apply-target-config').addEventListener('click', applyTargetSettings);
+    document.getElementById('save-config').addEventListener('click', saveConfig);
+    document.getElementById('export-config').addEventListener('click', exportConfig);
+    document.getElementById('reset-config').addEventListener('click', resetConfig);
+    targetSelect.addEventListener('change', syncEditorFromSelection);
+    objectSelect.addEventListener('change', syncEditorFromSelection);
+    editorInputs.forEach((input) => input.addEventListener('input', () => updateTransformFromInput(input)));
+    [videoSrcInput, videoWidthInput, videoHeightInput, chromaColorInput, chromaThresholdInput].forEach((input) => {
+      input.addEventListener('input', updateVideoSettings);
+    });
+
+    window.addEventListener('keydown', (event) => {
+      if (event.key.toLowerCase() === 'p') forcePreview();
+      if (event.key.toLowerCase() === 'i' && !event.metaKey && !event.ctrlKey && !event.altKey) openAFrameInspector();
+      if (event.key.toLowerCase() === 's' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        saveConfig();
+      }
+    });
+
+    applySceneConfig();
+    sceneReady().then(() => forcePreview(true));
+    setStatus('Modo editor 3D activo. Abrí el inspector o ajustá los valores del panel.', 'ready');
+  </script>
+</body>
+</html>
